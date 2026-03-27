@@ -1,23 +1,29 @@
 package com.sprint.ootd5team.domain.feed.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sprint.ootd5team.base.exception.feed.FeedOutboxSaveFailedException;
 import com.sprint.ootd5team.base.exception.feed.InvalidSortOptionException;
 import com.sprint.ootd5team.domain.clothes.entity.Clothes;
-import com.sprint.ootd5team.domain.feed.service.internal.FeedDtoAssembler;
 import com.sprint.ootd5team.domain.feed.dto.data.FeedDto;
 import com.sprint.ootd5team.domain.feed.dto.data.FeedSearchResult;
+import com.sprint.ootd5team.domain.feed.dto.enums.EventStatus;
 import com.sprint.ootd5team.domain.feed.dto.request.FeedCreateRequest;
 import com.sprint.ootd5team.domain.feed.dto.request.FeedListRequest;
 import com.sprint.ootd5team.domain.feed.dto.request.FeedUpdateRequest;
 import com.sprint.ootd5team.domain.feed.dto.response.FeedDtoCursorResponse;
 import com.sprint.ootd5team.domain.feed.entity.Feed;
 import com.sprint.ootd5team.domain.feed.entity.FeedClothes;
-import com.sprint.ootd5team.domain.feed.event.producer.FeedEventProducer;
+import com.sprint.ootd5team.domain.feed.entity.FeedEventOutbox;
 import com.sprint.ootd5team.domain.feed.event.type.FeedContentUpdatedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedDeletedEvent;
+import com.sprint.ootd5team.domain.feed.event.type.FeedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedIndexCreatedEvent;
+import com.sprint.ootd5team.domain.feed.event.type.OutboxCreatedEvent;
 import com.sprint.ootd5team.domain.feed.repository.feed.FeedRepository;
 import com.sprint.ootd5team.domain.feed.repository.feedClothes.FeedClothesRepository;
+import com.sprint.ootd5team.domain.feed.repository.feedOutbox.FeedEventOutboxRepository;
 import com.sprint.ootd5team.domain.feed.search.FeedSearchService;
+import com.sprint.ootd5team.domain.feed.service.internal.FeedDtoAssembler;
 import com.sprint.ootd5team.domain.feed.service.internal.FeedValidator;
 import com.sprint.ootd5team.domain.follow.repository.FollowRepository;
 import com.sprint.ootd5team.domain.notification.event.type.multi.FeedCreatedEvent;
@@ -47,10 +53,11 @@ public class FeedServiceImpl implements FeedService {
     private final FeedDtoAssembler feedDtoAssembler;
     private final FeedSearchService feedSearchService;
     private final FeedValidator feedValidator;
-    private final FeedEventProducer feedEventProducer;
+    private final FeedEventOutboxRepository feedEventOutboxRepository;
 
     private final ApplicationEventPublisher eventPublisher;
     private final FollowRepository followRepository;
+    private final ObjectMapper objectMapper;
 
     /**
      * 새 피드를 생성한다.
@@ -80,12 +87,15 @@ public class FeedServiceImpl implements FeedService {
         Feed feed = saveFeed(authorId, weatherId, request.content());
         saveFeedClothes(feed, clothesList);
 
+        FeedIndexCreatedEvent event = new FeedIndexCreatedEvent(
+            feed.getId(),
+            feed.getContent(),
+            feed.getCreatedAt()
+        );
+        saveToOutbox(event, "ootd.Feeds.Created", feed.getId());
+
         FeedDto dto = feedRepository.findFeedDtoById(feed.getId(), currentUserId);
         publishFeedCreatedEvent(dto);
-
-        feedEventProducer.publishFeedIndexCreatedEvent(
-            new FeedIndexCreatedEvent(feed.getId(), feed.getContent(), feed.getCreatedAt())
-        );
 
         return feedDtoAssembler.enrich(List.of(dto)).get(0);
     }
@@ -147,9 +157,10 @@ public class FeedServiceImpl implements FeedService {
         Feed feed = feedValidator.getFeedOrThrow(feedId);
         feed.updateContent(newContent);
 
-        log.debug("[FeedService] 피드 수정 완료 - feedId:{}, newContent:{}", feedId, newContent);
+        FeedContentUpdatedEvent event = new FeedContentUpdatedEvent(feedId, newContent);
+        saveToOutbox(event, "ootd.Feeds.ContentUpdated", feedId);
 
-        feedEventProducer.publishFeedContentUpdatedEvent(new FeedContentUpdatedEvent(feedId, newContent));
+        log.info("[FeedService] 피드 수정 완료 - feedId:{}, newContent:{}", feedId, newContent);
 
         FeedDto updated = feedRepository.findFeedDtoById(feedId, currentUserId);
         return feedDtoAssembler.enrich(List.of(updated)).get(0);
@@ -169,10 +180,12 @@ public class FeedServiceImpl implements FeedService {
         log.info("[FeedService] 피드 삭제 시작");
 
         Feed feed = feedValidator.getFeedOrThrow(feedId);
-
         feedRepository.delete(feed);
 
-        feedEventProducer.publishFeedDeletedEvent(new FeedDeletedEvent(feedId));
+        FeedDeletedEvent event = new FeedDeletedEvent(feedId);
+        saveToOutbox(event, "ootd.Feeds.Deleted", feedId);
+
+        log.info("[FeedService] 피드 삭제 완료 - feedId:{}", feedId);
     }
 
     /**
@@ -310,5 +323,40 @@ public class FeedServiceImpl implements FeedService {
             .toList();
 
         feedClothesRepository.saveAll(mappings);
+    }
+
+    /**
+     * 이벤트를 Outbox 테이블에 저장
+     *
+     * @param event 저장할 피드 이벤트
+     * @param topic Kafka 토픽
+     * @param feedId Feed ID
+     */
+    private void saveToOutbox(FeedEvent event, String topic, UUID feedId) {
+        try {
+            String eventType = event.getClass().getSimpleName();
+            String payload = objectMapper.writeValueAsString(event);
+
+            FeedEventOutbox outbox = FeedEventOutbox.builder()
+                .aggregateType("FEED")
+                .aggregateId(feedId)
+                .eventType(eventType)
+                .topic(topic)
+                .payload(payload)
+                .status(EventStatus.PENDING)
+                .retryCount(0)
+                .build();
+
+            feedEventOutboxRepository.save(outbox);
+
+            log.info("[FeedService] Outbox 저장 완료 - outboxId:{}, eventType:{}, feedId:{}",
+                outbox.getId(), eventType, feedId);
+
+            eventPublisher.publishEvent(new OutboxCreatedEvent(outbox.getId()));
+
+        } catch (Exception e) {
+            log.error("[FeedService] Outbox 저장 실패 - {}, feedId:{}", e.getClass().getName(), feedId);
+            throw FeedOutboxSaveFailedException.withId(feedId);
+        }
     }
 }

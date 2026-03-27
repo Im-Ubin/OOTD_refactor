@@ -1,16 +1,14 @@
 package com.sprint.ootd5team.domain.feed.event.type;
 
 import java.util.UUID;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.ToString;
 
-@NoArgsConstructor
-@AllArgsConstructor
-@ToString
+@ToString(callSuper = true)
 @Getter
-public class FeedDeletedEvent {
+public class FeedDeletedEvent extends FeedEvent {
 
-    private UUID feedId;
+    public FeedDeletedEvent(UUID feedId) {
+        super(feedId);
+    }
 }

@@ -2,18 +2,19 @@ package com.sprint.ootd5team.domain.feed.event.type;
 
 import java.time.Instant;
 import java.util.UUID;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.ToString;
 
-@NoArgsConstructor
-@AllArgsConstructor
-@ToString
+@ToString(callSuper = true)
 @Getter
-public class FeedIndexCreatedEvent {
+public class FeedIndexCreatedEvent extends FeedEvent {
 
-    private UUID feedId;
-    private String content;
-    private Instant createdAt;
+    private final String content;
+    private final Instant createdAt;
+
+    public FeedIndexCreatedEvent(UUID feedId, String content, Instant createdAt) {
+        super(feedId);
+        this.content = content;
+        this.createdAt = createdAt;
+    }
 }
