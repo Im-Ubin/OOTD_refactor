@@ -27,6 +27,8 @@ public enum ErrorCode {
     LIKE_NOT_FOUND_EXCEPTION(HttpStatus.NOT_FOUND, "존재하지 않는 좋아요입니다."),
     LIKE_COUNT_UNDER_FLOW_EXCEPTION(HttpStatus.BAD_REQUEST, "좋아요 수가 음수일 수 없습니다."),
     FEED_OUTBOX_SAVE_FAILED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "피드 이벤트 저장에 실패했습니다."),
+    FEED_OUTBOX_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 피드 이벤트입니다."),
+    FEED_UNKNOW_EVENT_TYPE(HttpStatus.BAD_REQUEST, "유효하지 않은 피드 이벤트 타입입니다."),
 
     // Weather 관련 에러코드
     WEATHER_NOT_FOUND(HttpStatus.NOT_FOUND, "해당하는 날씨 데이터가 없습니다."),
