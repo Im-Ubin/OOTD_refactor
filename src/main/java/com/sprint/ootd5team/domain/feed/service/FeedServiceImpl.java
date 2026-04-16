@@ -18,7 +18,7 @@ import com.sprint.ootd5team.domain.feed.event.type.FeedContentUpdatedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedDeletedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedIndexCreatedEvent;
-import com.sprint.ootd5team.domain.feed.event.type.OutboxCreatedEvent;
+import com.sprint.ootd5team.domain.feed.event.type.FeedOutboxSavedEvent;
 import com.sprint.ootd5team.domain.feed.repository.feed.FeedRepository;
 import com.sprint.ootd5team.domain.feed.repository.feedClothes.FeedClothesRepository;
 import com.sprint.ootd5team.domain.feed.repository.feedOutbox.FeedEventOutboxRepository;
@@ -338,7 +338,6 @@ public class FeedServiceImpl implements FeedService {
             String payload = objectMapper.writeValueAsString(event);
 
             FeedEventOutbox outbox = FeedEventOutbox.builder()
-                .aggregateType("FEED")
                 .aggregateId(feedId)
                 .eventType(eventType)
                 .topic(topic)
@@ -352,7 +351,7 @@ public class FeedServiceImpl implements FeedService {
             log.info("[FeedService] Outbox 저장 완료 - outboxId:{}, eventType:{}, feedId:{}",
                 outbox.getId(), eventType, feedId);
 
-            eventPublisher.publishEvent(new OutboxCreatedEvent(outbox.getId()));
+            eventPublisher.publishEvent(new FeedOutboxSavedEvent(outbox.getId()));
 
         } catch (Exception e) {
             log.error("[FeedService] Outbox 저장 실패 - {}, feedId:{}", e.getClass().getName(), feedId);
