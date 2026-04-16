@@ -60,7 +60,6 @@ public class ElasticsearchFeedIndexer {
     /**
      * 좋아요 수 변경 이벤트를 기반으로 Elasticsearch 문서의 likeCount 필드를 업데이트합니다.
      */
-
     public void updateLikeCount(FeedLikeCountUpdateEvent event) {
         Map<String, Object> doc = Map.of("likeCount", event.getNewLikeCount());
         UpdateQuery query = UpdateQuery.builder(event.getFeedId().toString())
