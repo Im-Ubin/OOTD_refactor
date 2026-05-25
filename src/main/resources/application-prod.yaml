@@ -44,10 +44,13 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     # Producer 설정
     producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       acks: all
       retries: 3
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        max.in.flight.requests.per.connection: 5
+        enable.idempotence: true
   # JPA 설정
   jpa:
     properties:
