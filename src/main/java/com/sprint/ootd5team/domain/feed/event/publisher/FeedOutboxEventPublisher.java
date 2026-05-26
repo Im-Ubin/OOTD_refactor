@@ -1,10 +1,11 @@
-package com.sprint.ootd5team.base.eventlistener;
+package com.sprint.ootd5team.domain.feed.event.publisher;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sprint.ootd5team.base.exception.feed.FeedOutboxNotFoundException;
 import com.sprint.ootd5team.base.exception.feed.FeedUnknowEventTypeException;
 import com.sprint.ootd5team.domain.feed.dto.enums.EventStatus;
 import com.sprint.ootd5team.domain.feed.entity.FeedEventOutbox;
+import com.sprint.ootd5team.domain.feed.event.listener.FeedOutboxEventListener;
 import com.sprint.ootd5team.domain.feed.event.type.FeedContentUpdatedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedDeletedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedIndexCreatedEvent;

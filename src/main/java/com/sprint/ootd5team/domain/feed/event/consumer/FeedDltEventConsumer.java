@@ -1,4 +1,4 @@
-package com.sprint.ootd5team.base.eventlistener;
+package com.sprint.ootd5team.domain.feed.event.consumer;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class FeedDltEventListener {
+public class FeedDltEventConsumer {
 
     private final JavaMailSender mailSender;
 

@@ -1,5 +1,6 @@
-package com.sprint.ootd5team.base.eventlistener;
+package com.sprint.ootd5team.domain.feed.event.listener;
 
+import com.sprint.ootd5team.domain.feed.event.publisher.FeedOutboxEventPublisher;
 import com.sprint.ootd5team.domain.feed.event.type.FeedOutboxSavedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

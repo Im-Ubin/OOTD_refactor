@@ -1,6 +1,6 @@
 package com.sprint.ootd5team.domain.feed.scheduler;
 
-import com.sprint.ootd5team.base.eventlistener.FeedOutboxEventPublisher;
+import com.sprint.ootd5team.domain.feed.event.publisher.FeedOutboxEventPublisher;
 import com.sprint.ootd5team.domain.feed.dto.enums.EventStatus;
 import com.sprint.ootd5team.domain.feed.entity.FeedEventOutbox;
 import com.sprint.ootd5team.domain.feed.repository.feedOutbox.FeedEventOutboxRepository;
