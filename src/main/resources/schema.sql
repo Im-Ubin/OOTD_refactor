@@ -172,6 +172,20 @@ CREATE TABLE IF NOT EXISTS tbl_feed_likes
     CONSTRAINT uq_feed_like UNIQUE (feed_id, user_id)
 );
 
+-- 피드 아웃박스 테이블
+CREATE TABLE tbl_feed_event_outbox (
+    id                  BIGSERIAL       PRIMARY KEY,
+    aggregate_id        UUID            NOT NULL,
+    event_type          VARCHAR(255)    NOT NULL,
+    topic               VARCHAR(255)    NOT NULL,
+    payload             TEXT            NOT NULL,
+    status              VARCHAR(50)     NOT NULL,
+    created_at          TIMESTAMPTZ     NOT NULL,
+    published_at        TIMESTAMPTZ,
+    retry_count         INTEGER         DEFAULT 0,
+    error_message       VARCHAR(255)
+);
+
 /****** 날씨 ******/
 -- 날씨 테이블
 CREATE TABLE IF NOT EXISTS tbl_weathers
@@ -382,6 +396,13 @@ CREATE INDEX IF NOT EXISTS idx_feed_comments_feed_id
 -- tbl_feed_likes index
 CREATE INDEX IF NOT EXISTS idx_feed_likes_feed_id
     ON tbl_feed_likes(feed_id);
+
+-- tbl_feed_event_outbox index
+CREATE INDEX idx_outbox_status_created_at
+    ON tbl_feed_event_outbox (status, created_at);
+
+CREATE INDEX idx_outbox_published_at
+    ON tbl_feed_event_outbox (published_at);
 
 -- tbl_follows index
 CREATE INDEX IF NOT EXISTS idx_follows_followee_id

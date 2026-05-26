@@ -1,17 +1,17 @@
 package com.sprint.ootd5team.domain.feed.event.type;
 
 import java.util.UUID;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.ToString;
 
-@NoArgsConstructor
-@AllArgsConstructor
-@ToString
+@ToString(callSuper = true)
 @Getter
-public class FeedLikeCountUpdateEvent {
+public class FeedLikeCountUpdateEvent extends FeedEvent {
 
-    private UUID feedId;
-    private long newLikeCount;
+    private final long newLikeCount;
+
+    public FeedLikeCountUpdateEvent(UUID feedId, long newLikeCount) {
+        super(feedId);
+        this.newLikeCount = newLikeCount;
+    }
 }

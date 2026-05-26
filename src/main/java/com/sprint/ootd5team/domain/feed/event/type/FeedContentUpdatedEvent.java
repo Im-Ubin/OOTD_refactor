@@ -2,16 +2,18 @@ package com.sprint.ootd5team.domain.feed.event.type;
 
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import java.util.UUID;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.ToString;
 
+@ToString(callSuper = true)
 @Getter
-@NoArgsConstructor
-@AllArgsConstructor
 @JsonTypeName("feed-updated")
-public class FeedContentUpdatedEvent {
+public class FeedContentUpdatedEvent extends FeedEvent {
 
-    private UUID feedId;
-    private String content;
+    private final String content;
+
+    public FeedContentUpdatedEvent(UUID feedId, String content) {
+        super(feedId);
+        this.content = content;
+    }
 }

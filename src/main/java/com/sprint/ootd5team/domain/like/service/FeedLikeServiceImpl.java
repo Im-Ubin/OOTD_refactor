@@ -1,13 +1,19 @@
 package com.sprint.ootd5team.domain.like.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sprint.ootd5team.base.exception.feed.AlreadyLikedException;
 import com.sprint.ootd5team.base.exception.feed.FeedNotFoundException;
+import com.sprint.ootd5team.base.exception.feed.FeedOutboxSaveFailedException;
 import com.sprint.ootd5team.base.exception.feed.LikeCountUnderflowException;
 import com.sprint.ootd5team.base.exception.feed.LikeNotFoundException;
+import com.sprint.ootd5team.domain.feed.dto.enums.EventStatus;
 import com.sprint.ootd5team.domain.feed.entity.Feed;
-import com.sprint.ootd5team.domain.feed.event.producer.FeedEventProducer;
+import com.sprint.ootd5team.domain.feed.entity.FeedEventOutbox;
+import com.sprint.ootd5team.domain.feed.event.type.FeedEvent;
 import com.sprint.ootd5team.domain.feed.event.type.FeedLikeCountUpdateEvent;
+import com.sprint.ootd5team.domain.feed.event.type.FeedOutboxSavedEvent;
 import com.sprint.ootd5team.domain.feed.repository.feed.FeedRepository;
+import com.sprint.ootd5team.domain.feed.repository.feedOutbox.FeedEventOutboxRepository;
 import com.sprint.ootd5team.domain.like.entity.FeedLike;
 import com.sprint.ootd5team.domain.like.repository.FeedLikeRepository;
 import com.sprint.ootd5team.domain.notification.event.type.single.FeedLikedEvent;
@@ -26,10 +32,11 @@ public class FeedLikeServiceImpl implements FeedLikeService {
 
     private final FeedLikeRepository feedLikeRepository;
     private final FeedRepository feedRepository;
-    private final FeedEventProducer feedEventProducer;
+    private final FeedEventOutboxRepository feedEventOutboxRepository;
 
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public void like(UUID feedId, UUID currentUserId) {
@@ -77,9 +84,36 @@ public class FeedLikeServiceImpl implements FeedLikeService {
     private void publishLikeCountUpdatedEvent(UUID feedId) {
         long updatedLikeCount = feedRepository.findLikeCountByFeedId(feedId);
 
-        feedEventProducer.publishLikeCountUpdatedEvent(
-            new FeedLikeCountUpdateEvent(feedId, updatedLikeCount)
-        );
+        FeedLikeCountUpdateEvent event = new FeedLikeCountUpdateEvent(feedId, updatedLikeCount);
+
+        saveToOutbox(event, "ootd.Feeds.LikeUpdated", feedId);
+    }
+
+    private void saveToOutbox(FeedEvent event, String topic, UUID feedId) {
+        try {
+            String eventType = event.getClass().getSimpleName();
+            String payload = objectMapper.writeValueAsString(event);
+
+            FeedEventOutbox outbox = FeedEventOutbox.builder()
+                .aggregateId(feedId)
+                .eventType(eventType)
+                .topic(topic)
+                .payload(payload)
+                .status(EventStatus.PENDING)
+                .retryCount(0)
+                .build();
+
+            feedEventOutboxRepository.save(outbox);
+
+            log.info("[FeedLikeService] Outbox 저장 완료 - outboxId:{}, eventType:{}, feedId:{}",
+                outbox.getId(), eventType, feedId);
+
+            eventPublisher.publishEvent(new FeedOutboxSavedEvent(outbox.getId()));
+
+        } catch (Exception e) {
+            log.error("[FeedLikeService] Outbox 저장 실패 - {}, feedId:{}", e.getClass().getName(), feedId);
+            throw FeedOutboxSaveFailedException.withId(feedId);
+        }
     }
 
     private Feed validateFeed(UUID feedId) {
