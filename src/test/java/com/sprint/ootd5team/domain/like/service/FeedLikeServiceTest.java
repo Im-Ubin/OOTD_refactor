@@ -4,18 +4,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sprint.ootd5team.base.exception.feed.AlreadyLikedException;
 import com.sprint.ootd5team.base.exception.feed.FeedNotFoundException;
 import com.sprint.ootd5team.base.exception.feed.LikeCountUnderflowException;
 import com.sprint.ootd5team.base.exception.feed.LikeNotFoundException;
 import com.sprint.ootd5team.domain.feed.entity.Feed;
-import com.sprint.ootd5team.domain.feed.event.producer.FeedEventProducer;
+import com.sprint.ootd5team.domain.feed.entity.FeedEventOutbox;
+import com.sprint.ootd5team.domain.feed.event.type.FeedOutboxSavedEvent;
 import com.sprint.ootd5team.domain.feed.repository.feed.FeedRepository;
+import com.sprint.ootd5team.domain.feed.repository.feedOutbox.FeedEventOutboxRepository;
 import com.sprint.ootd5team.domain.like.entity.FeedLike;
 import com.sprint.ootd5team.domain.like.repository.FeedLikeRepository;
-import com.sprint.ootd5team.domain.like.service.FeedLikeServiceImpl;
 import com.sprint.ootd5team.domain.notification.event.type.single.FeedLikedEvent;
 import com.sprint.ootd5team.domain.user.repository.UserRepository;
 import java.util.Optional;
@@ -29,6 +33,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("FeedLikeService 슬라이스 테스트")
@@ -42,13 +47,16 @@ public class FeedLikeServiceTest {
     private FeedRepository feedRepository;
 
     @Mock
-    private FeedEventProducer feedEventProducer;
+    private FeedEventOutboxRepository feedEventOutboxRepository;
 
     @Mock
     private UserRepository userRepository;
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private ObjectMapper objectMapper;
 
     @InjectMocks
     private FeedLikeServiceImpl feedLikeService;
@@ -58,24 +66,27 @@ public class FeedLikeServiceTest {
     private Feed feed;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         feedId = UUID.randomUUID();
         userId = UUID.randomUUID();
         feed = Feed.of(UUID.randomUUID(), UUID.randomUUID(), "테스트");
+        ReflectionTestUtils.setField(feed, "id", feedId);
+
+        lenient().when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        FeedEventOutbox mockOutbox = mock(FeedEventOutbox.class);
+        lenient().when(mockOutbox.getId()).thenReturn(1L);
+        lenient().when(feedEventOutboxRepository.save(any(FeedEventOutbox.class))).thenReturn(mockOutbox);
     }
 
     @Test
-    @DisplayName("like() - 성공적으로 좋아요 등록_(알림 이벤트 포함)")
+    @DisplayName("like() - 성공적으로 좋아요 등록 (알림 이벤트 포함)")
     void like_success() {
         // given
-        given(feedRepository.findById(feedId))
-            .willReturn(Optional.of(feed));
-        given(feedLikeRepository.existsByFeedIdAndUserId(feedId, userId))
-            .willReturn(false);
-        given(userRepository.findUserNameById(userId))
-            .willReturn("tester");
-        given(feedRepository.findLikeCountByFeedId(feedId))
-            .willReturn(10L);
+        given(feedRepository.findById(feedId)).willReturn(Optional.of(feed));
+        given(feedLikeRepository.existsByFeedIdAndUserId(feedId, userId)).willReturn(false);
+        given(userRepository.findUserNameById(userId)).willReturn("tester");
+        given(feedRepository.findLikeCountByFeedId(feedId)).willReturn(10L);
 
         // when
         feedLikeService.like(feedId, userId);
@@ -83,7 +94,8 @@ public class FeedLikeServiceTest {
         // then
         then(feedLikeRepository).should().save(any(FeedLike.class));
         then(feedRepository).should().incrementLikeCount(feedId);
-        then(feedEventProducer).should().publishLikeCountUpdatedEvent(any());
+        then(feedEventOutboxRepository).should().save(any(FeedEventOutbox.class));
+        then(eventPublisher).should().publishEvent(any(FeedOutboxSavedEvent.class));
         then(eventPublisher).should().publishEvent(any(FeedLikedEvent.class));
     }
 
@@ -99,6 +111,7 @@ public class FeedLikeServiceTest {
 
         then(feedLikeRepository).should(never()).save(any());
         then(feedRepository).should(never()).incrementLikeCount(any());
+        then(feedEventOutboxRepository).should(never()).save(any());
     }
 
     @Test
@@ -114,11 +127,11 @@ public class FeedLikeServiceTest {
 
         then(feedLikeRepository).should(never()).save(any());
         then(feedRepository).should(never()).incrementLikeCount(any());
-        then(feedEventProducer).should(never()).publishLikeCountUpdatedEvent(any());
+        then(feedEventOutboxRepository).should(never()).save(any());
     }
 
     @Test
-    @DisplayName("unLike() - 성공적으로 좋아요 취소 및 이벤트 발행")
+    @DisplayName("unLike() - 성공적으로 좋아요 취소 및 Outbox 저장")
     void unLike_success() {
         // given
         given(feedRepository.findById(feedId)).willReturn(Optional.of(feed));
@@ -132,7 +145,8 @@ public class FeedLikeServiceTest {
         // then
         then(feedLikeRepository).should().deleteByFeedIdAndUserId(feedId, userId);
         then(feedRepository).should().decrementLikeCount(feedId);
-        then(feedEventProducer).should().publishLikeCountUpdatedEvent(any());
+        then(feedEventOutboxRepository).should().save(any(FeedEventOutbox.class));
+        then(eventPublisher).should().publishEvent(any(FeedOutboxSavedEvent.class));
     }
 
     @Test
@@ -147,6 +161,7 @@ public class FeedLikeServiceTest {
 
         then(feedLikeRepository).should(never()).deleteByFeedIdAndUserId(any(), any());
         then(feedRepository).should(never()).decrementLikeCount(any());
+        then(feedEventOutboxRepository).should(never()).save(any());
     }
 
     @Test
@@ -162,7 +177,7 @@ public class FeedLikeServiceTest {
 
         then(feedLikeRepository).should(never()).deleteByFeedIdAndUserId(any(), any());
         then(feedRepository).should(never()).decrementLikeCount(any());
-        then(feedEventProducer).should(never()).publishLikeCountUpdatedEvent(any());
+        then(feedEventOutboxRepository).should(never()).save(any());
     }
 
     @Test
@@ -179,6 +194,6 @@ public class FeedLikeServiceTest {
 
         then(feedLikeRepository).should().deleteByFeedIdAndUserId(feedId, userId);
         then(feedRepository).should().decrementLikeCount(feedId);
-        then(feedEventProducer).should(never()).publishLikeCountUpdatedEvent(any());
+        then(feedEventOutboxRepository).should(never()).save(any());
     }
 }
