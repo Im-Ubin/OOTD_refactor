@@ -7,16 +7,17 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sprint.ootd5team.base.exception.clothes.ClothesNotFoundException;
 import com.sprint.ootd5team.base.exception.feed.FeedNotFoundException;
 import com.sprint.ootd5team.base.exception.profile.ProfileNotFoundException;
 import com.sprint.ootd5team.domain.clothes.entity.Clothes;
-import com.sprint.ootd5team.domain.feed.service.internal.FeedDtoAssembler;
 import com.sprint.ootd5team.domain.feed.dto.data.FeedDto;
 import com.sprint.ootd5team.domain.feed.dto.data.FeedSearchResult;
 import com.sprint.ootd5team.domain.feed.dto.enums.SortDirection;
@@ -25,10 +26,13 @@ import com.sprint.ootd5team.domain.feed.dto.request.FeedListRequest;
 import com.sprint.ootd5team.domain.feed.dto.request.FeedUpdateRequest;
 import com.sprint.ootd5team.domain.feed.dto.response.FeedDtoCursorResponse;
 import com.sprint.ootd5team.domain.feed.entity.Feed;
-import com.sprint.ootd5team.domain.feed.event.producer.FeedEventProducer;
+import com.sprint.ootd5team.domain.feed.entity.FeedEventOutbox;
+import com.sprint.ootd5team.domain.feed.event.type.FeedOutboxSavedEvent;
 import com.sprint.ootd5team.domain.feed.repository.feed.FeedRepository;
 import com.sprint.ootd5team.domain.feed.repository.feedClothes.FeedClothesRepository;
+import com.sprint.ootd5team.domain.feed.repository.feedOutbox.FeedEventOutboxRepository;
 import com.sprint.ootd5team.domain.feed.search.FeedSearchService;
+import com.sprint.ootd5team.domain.feed.service.internal.FeedDtoAssembler;
 import com.sprint.ootd5team.domain.feed.service.internal.FeedValidator;
 import com.sprint.ootd5team.domain.follow.repository.FollowRepository;
 import com.sprint.ootd5team.domain.notification.event.type.multi.FeedCreatedEvent;
@@ -70,7 +74,7 @@ public class FeedServiceTest {
     private FeedValidator feedValidator;
 
     @Mock
-    private FeedEventProducer feedEventProducer;
+    private FeedEventOutboxRepository feedEventOutboxRepository;
 
     @Mock
     private FeedSearchService feedSearchService;
@@ -81,6 +85,9 @@ public class FeedServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private ObjectMapper objectMapper;
+
     private FeedServiceImpl feedService;
     private UUID userId;
     private FeedListRequest request;
@@ -88,7 +95,7 @@ public class FeedServiceTest {
     private WeatherSummaryDto weather;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         userId = UUID.randomUUID();
 
         request = new FeedListRequest(
@@ -104,15 +111,22 @@ public class FeedServiceTest {
             new TemperatureDto(20.0, -1.0, 18.0, 25.0)
         );
 
+        lenient().when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        FeedEventOutbox mockOutbox = mock(FeedEventOutbox.class);
+        lenient().when(mockOutbox.getId()).thenReturn(1L);
+        lenient().when(feedEventOutboxRepository.save(any(FeedEventOutbox.class))).thenReturn(mockOutbox);
+
         feedService = new FeedServiceImpl(
             feedRepository,
             feedClothesRepository,
             feedDtoAssembler,
             feedSearchService,
             feedValidator,
-            feedEventProducer,
+            feedEventOutboxRepository,
             eventPublisher,
-            followRepository
+            followRepository,
+            objectMapper
         );
     }
 
@@ -121,7 +135,6 @@ public class FeedServiceTest {
     void getFeeds_success() {
         // given
         UUID feedId = UUID.randomUUID();
-
         FeedDto raw = dummyFeedDto(feedId);
 
         when(feedRepository.findFeedDtos(request, userId))
@@ -154,9 +167,12 @@ public class FeedServiceTest {
             List.of(UUID.randomUUID()), "cursor", UUID.randomUUID(), false, 10
         );
 
-        when(feedSearchService.searchByKeyword(feedListRequest)).thenReturn(feedSearchResult);
-        when(feedRepository.findFeedDtosByIds(eq(feedListRequest), anyList(), any())).thenReturn(List.of(mock(FeedDto.class)));
-        when(feedDtoAssembler.enrich(anyList())).thenReturn(List.of(mock(FeedDto.class)));
+        when(feedSearchService.searchByKeyword(feedListRequest))
+            .thenReturn(feedSearchResult);
+        when(feedRepository.findFeedDtosByIds(eq(feedListRequest), anyList(), any()))
+            .thenReturn(List.of(mock(FeedDto.class)));
+        when(feedDtoAssembler.enrich(anyList()))
+            .thenReturn(List.of(mock(FeedDto.class)));
 
         // when
         feedService.getFeeds(feedListRequest, userId);
@@ -174,14 +190,11 @@ public class FeedServiceTest {
 
         FeedDto feed1 = new FeedDto(
             feedId1, Instant.now().minusSeconds(3600), Instant.now().minusSeconds(3600),
-            author, weather, List.of(),
-            "내용1", 1, 0, false
+            author, weather, List.of(), "내용1", 1, 0, false
         );
-
         FeedDto feed2 = new FeedDto(
             feedId2, Instant.now(), Instant.now(),
-            author, weather, List.of(),
-            "내용2", 2, 0, false
+            author, weather, List.of(), "내용2", 2, 0, false
         );
 
         when(feedRepository.findFeedDtos(request, userId))
@@ -206,9 +219,12 @@ public class FeedServiceTest {
         Feed feed = createFeed(feedId);
         FeedDto mockDto = mock(FeedDto.class);
 
-        when(feedValidator.getFeedOrThrow(feedId)).thenReturn(feed);
-        when(feedRepository.findFeedDtoById(feedId, userId)).thenReturn(mockDto);
-        when(feedDtoAssembler.enrich(List.of(mockDto))).thenReturn(List.of(mockDto));
+        when(feedValidator.getFeedOrThrow(feedId))
+            .thenReturn(feed);
+        when(feedRepository.findFeedDtoById(feedId, userId))
+            .thenReturn(mockDto);
+        when(feedDtoAssembler.enrich(List.of(mockDto)))
+            .thenReturn(List.of(mockDto));
 
         // when
         FeedDto result = feedService.getFeed(feedId, userId);
@@ -240,14 +256,15 @@ public class FeedServiceTest {
     }
 
     @Test
-    @DisplayName("피드 생성 성공 시 FeedCreatedEvent, FeedIndexCreatedEvent 발행")
+    @DisplayName("피드 생성 성공 시 Outbox 저장 및 FeedCreatedEvent 발행")
     void createFeed_success() {
         // given
         UUID authorId = UUID.randomUUID();
         UUID weatherId = UUID.randomUUID();
         Set<UUID> clothesIds = Set.of(UUID.randomUUID());
 
-        FeedCreateRequest feedCreateRequest = new FeedCreateRequest(authorId, weatherId, clothesIds, "test content");
+        FeedCreateRequest feedCreateRequest = new FeedCreateRequest(
+            authorId, weatherId, clothesIds, "test content");
         Feed feed = createFeed(UUID.randomUUID());
         FeedDto feedDto = dummyFeedDto(feed.getId());
         List<Clothes> clothesList = List.of(mock(Clothes.class));
@@ -271,7 +288,8 @@ public class FeedServiceTest {
         assertThat(result).isNotNull();
         verify(feedRepository).save(any(Feed.class));
         verify(feedClothesRepository).saveAll(anyList());
-        verify(feedEventProducer).publishFeedIndexCreatedEvent(any());
+        verify(feedEventOutboxRepository).save(any(FeedEventOutbox.class));
+        verify(eventPublisher).publishEvent(any(FeedOutboxSavedEvent.class));
         verify(eventPublisher).publishEvent(any(FeedCreatedEvent.class));
     }
 
@@ -281,7 +299,7 @@ public class FeedServiceTest {
         // given
         UUID authorId = UUID.randomUUID();
         UUID weatherId = UUID.randomUUID();
-        FeedCreateRequest request = new FeedCreateRequest(
+        FeedCreateRequest feedCreateRequest = new FeedCreateRequest(
             authorId, weatherId, Set.of(UUID.randomUUID()), "내용"
         );
 
@@ -290,13 +308,13 @@ public class FeedServiceTest {
             .validateAuthorAndWeather(authorId, weatherId);
 
         // when & then
-        assertThatThrownBy(() -> feedService.create(request, authorId))
+        assertThatThrownBy(() -> feedService.create(feedCreateRequest, authorId))
             .isInstanceOf(ProfileNotFoundException.class);
 
         verify(feedValidator).validateAuthorAndWeather(authorId, weatherId);
         verify(feedValidator, never()).validateClothes(any());
         verify(feedRepository, never()).save(any());
-        verify(feedEventProducer, never()).publishFeedIndexCreatedEvent(any());
+        verify(feedEventOutboxRepository, never()).save(any());
     }
 
     @Test
@@ -308,11 +326,8 @@ public class FeedServiceTest {
         UUID clothesId1 = UUID.randomUUID();
         UUID clothesId2 = UUID.randomUUID();
 
-        FeedCreateRequest request = new FeedCreateRequest(
-            authorId,
-            weatherId,
-            Set.of(clothesId1, clothesId2),
-            "내용"
+        FeedCreateRequest feedCreateRequest = new FeedCreateRequest(
+            authorId, weatherId, Set.of(clothesId1, clothesId2), "내용"
         );
 
         doNothing().when(feedValidator).validateAuthorAndWeather(authorId, weatherId);
@@ -321,29 +336,35 @@ public class FeedServiceTest {
             .validateClothes(Set.of(clothesId1, clothesId2));
 
         // when & then
-        assertThatThrownBy(() -> feedService.create(request, authorId))
+        assertThatThrownBy(() -> feedService.create(feedCreateRequest, authorId))
             .isInstanceOf(ClothesNotFoundException.class);
 
         verify(feedValidator).validateAuthorAndWeather(authorId, weatherId);
         verify(feedValidator).validateClothes(Set.of(clothesId1, clothesId2));
         verify(feedRepository, never()).save(any());
-        verify(feedEventProducer, never()).publishFeedIndexCreatedEvent(any());
+        verify(feedEventOutboxRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("피드 수정 시 FeedContentUpdatedEvent 발행")
+    @DisplayName("피드 수정 시 Outbox에 FeedContentUpdatedEvent 저장")
     void updateFeed_success() {
         // given
         UUID feedId = UUID.randomUUID();
         Feed feed = createFeed(feedId);
 
-        when(feedValidator.getFeedOrThrow(feedId)).thenReturn(feed);
-        when(feedRepository.findFeedDtoById(feedId, userId)).thenReturn(mock(FeedDto.class));
-        when(feedDtoAssembler.enrich(anyList())).thenReturn(List.of(mock(FeedDto.class)));
+        when(feedValidator.getFeedOrThrow(feedId))
+            .thenReturn(feed);
+        when(feedRepository.findFeedDtoById(feedId, userId))
+            .thenReturn(mock(FeedDto.class));
+        when(feedDtoAssembler.enrich(anyList()))
+            .thenReturn(List.of(mock(FeedDto.class)));
 
+        // when
         feedService.update(feedId, new FeedUpdateRequest("new content"), userId);
 
-        verify(feedEventProducer).publishFeedContentUpdatedEvent(any());
+        // then
+        verify(feedEventOutboxRepository).save(any(FeedEventOutbox.class));
+        verify(eventPublisher).publishEvent(any(FeedOutboxSavedEvent.class));
     }
 
     @Test
@@ -361,25 +382,26 @@ public class FeedServiceTest {
 
         verify(feedValidator).getFeedOrThrow(feedId);
         verify(feedRepository, never()).findFeedDtoById(any(), any());
-        verify(feedDtoAssembler, never()).enrich(anyList());
-        verify(feedEventProducer, never()).publishFeedContentUpdatedEvent(any());
+        verify(feedEventOutboxRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("피드 삭제 성공")
+    @DisplayName("피드 삭제 성공 시 Outbox에 FeedDeletedEvent 저장")
     void deleteFeed_success() {
         // given
         UUID feedId = UUID.randomUUID();
         Feed feed = createFeed(feedId);
 
-        when(feedValidator.getFeedOrThrow(feedId)).thenReturn(feed);
+        when(feedValidator.getFeedOrThrow(feedId))
+            .thenReturn(feed);
 
         // when
         feedService.delete(feedId);
 
         // then
         verify(feedRepository).delete(feed);
-        verify(feedEventProducer).publishFeedDeletedEvent(any());
+        verify(feedEventOutboxRepository).save(any(FeedEventOutbox.class));
+        verify(eventPublisher).publishEvent(any(FeedOutboxSavedEvent.class));
     }
 
     @Test
@@ -397,7 +419,7 @@ public class FeedServiceTest {
 
         verify(feedValidator).getFeedOrThrow(feedId);
         verify(feedRepository, never()).delete(any());
-        verify(feedEventProducer, never()).publishFeedDeletedEvent(any());
+        verify(feedEventOutboxRepository, never()).save(any());
     }
 
     private Feed createFeed(UUID id) {
