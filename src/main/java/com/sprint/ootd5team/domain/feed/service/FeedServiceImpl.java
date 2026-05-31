@@ -27,6 +27,7 @@ import com.sprint.ootd5team.domain.feed.service.internal.FeedDtoAssembler;
 import com.sprint.ootd5team.domain.feed.service.internal.FeedValidator;
 import com.sprint.ootd5team.domain.follow.repository.FollowRepository;
 import com.sprint.ootd5team.domain.notification.event.type.multi.FeedCreatedEvent;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -157,7 +158,13 @@ public class FeedServiceImpl implements FeedService {
         Feed feed = feedValidator.getFeedOrThrow(feedId);
         feed.updateContent(newContent);
 
-        FeedContentUpdatedEvent event = new FeedContentUpdatedEvent(feedId, newContent);
+        FeedContentUpdatedEvent event = new FeedContentUpdatedEvent(
+            feedId,
+            newContent,
+            feed.getCreatedAt(),
+            Instant.now(),
+            feed.getLikeCount()
+        );
         saveToOutbox(event, "ootd.Feeds.ContentUpdated", feedId);
 
         log.info("[FeedService] 피드 수정 완료 - feedId:{}, newContent:{}", feedId, newContent);
